@@ -1,7 +1,10 @@
 package com.camp.bit.todolist;
 
 import android.app.Activity;
+import android.content.ContentValues;
 import android.content.Intent;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 import android.os.Bundle;
 import android.support.annotation.Nullable;
 import android.support.design.widget.FloatingActionButton;
@@ -15,9 +18,16 @@ import android.view.MenuItem;
 import android.view.View;
 
 import com.camp.bit.todolist.beans.Note;
+import com.camp.bit.todolist.beans.State;
+import com.camp.bit.todolist.db.TodoContract;
+import com.camp.bit.todolist.db.TodoDbHelper;
 import com.camp.bit.todolist.debug.DebugActivity;
 import com.camp.bit.todolist.ui.NoteListAdapter;
 
+import org.w3c.dom.Node;
+
+import java.util.Date;
+import java.util.LinkedList;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
@@ -27,12 +37,17 @@ public class MainActivity extends AppCompatActivity {
     private RecyclerView recyclerView;
     private NoteListAdapter notesAdapter;
 
+    private SQLiteDatabase db;
+    private TodoDbHelper mtodoDbHelper;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
+
+        mtodoDbHelper = new TodoDbHelper(this);
+        db = mtodoDbHelper.getWritableDatabase();
 
         FloatingActionButton fab = findViewById(R.id.fab);
         fab.setOnClickListener(new View.OnClickListener() {
@@ -67,6 +82,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        mtodoDbHelper.close();
         super.onDestroy();
     }
 
@@ -103,15 +119,64 @@ public class MainActivity extends AppCompatActivity {
 
     private List<Note> loadNotesFromDatabase() {
         // TODO 从数据库中查询数据，并转换成 JavaBeans
-        return null;
+        Cursor cursor = null;
+        List<Note> result = new LinkedList<>();
+        try {
+            cursor = db.query(TodoContract.TodoEntry.TABLE_NAME,new String[]{TodoContract.TodoEntry._ID
+                    ,TodoContract.TodoEntry.COLUMN_NAME_TIME
+                    ,TodoContract.TodoEntry.COLUMN_NAME_STATE
+                    ,TodoContract.TodoEntry.COLUMN_NAME_MESSAGE}
+                    ,null,null,null,null,null,null);
+            while (cursor.moveToNext()){
+                String msg = cursor.getString(cursor.getColumnIndexOrThrow(TodoContract.TodoEntry.COLUMN_NAME_MESSAGE));
+                long   dat = cursor.getLong(cursor.getColumnIndexOrThrow(TodoContract.TodoEntry.COLUMN_NAME_TIME));
+                int     id = cursor.getInt(cursor.getColumnIndexOrThrow(TodoContract.TodoEntry._ID));
+                int  state = cursor.getInt(cursor.getColumnIndexOrThrow(TodoContract.TodoEntry.COLUMN_NAME_STATE));
+
+                Note note = new Note(id);
+
+                note.setContent(msg);
+                note.setDate(new Date(dat));
+                note.setState(State.from(state));
+
+                result.add(note);
+            }
+
+        }
+        finally {
+            if (cursor!=null){
+                cursor.close();
+            }
+        }
+        return result;
     }
 
     private void deleteNote(Note note) {
         // TODO 删除数据
+
+        String selection = TodoContract.TodoEntry._ID + " =?";
+        String[] selectionArgs = {String.valueOf(note.id)};
+        int lines = db.delete(TodoContract.TodoEntry.TABLE_NAME,selection,selectionArgs);
+        if(lines != 0){
+            notesAdapter.refresh(loadNotesFromDatabase());
+        }
     }
 
-    private void updateNode(Note note) {
+    public void updateNode(Note note) {
         // 更新数据
+        ContentValues values= new ContentValues();
+
+        values.put(TodoContract.TodoEntry.COLUMN_NAME_STATE,note.getState().intValue);
+
+
+        String selection = TodoContract.TodoEntry._ID + " =?";
+        String[] selectionArgs = {String.valueOf(note.id)};
+
+        int count = db.update(TodoContract.TodoEntry.TABLE_NAME,values,selection,selectionArgs);
+
+        if(count != 0){
+            notesAdapter.refresh(loadNotesFromDatabase());
+        }
     }
 
 }
